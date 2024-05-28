@@ -1,0 +1,2 @@
+batch_size,epochs,learning_rate,noise_multiplier,max_per_sample_grad_norm,clipping_mode,algorithm,overall_privacy_spent,dataset,model_name,device,iteration_train_times,training_losses,validation_losses,validation_dice_scores,total_training_time
+10,5,0.0005,,,,Non_DP,,Duke,unet,cpu,"[13.578709125518799, 13.762138843536377, 14.063819646835327, 13.323759078979492, 20.940553188323975]","[0.13497656041925604, 0.1342942642443108, 0.1337867830738877, 0.13350875449903082, 0.13302575458179822]",[2.903625260699879],[tensor(0.1718)],78.99325585365295

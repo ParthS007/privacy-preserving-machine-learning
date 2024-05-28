@@ -1,11 +1,9 @@
 import argparse
-import csv
 import os
 import time
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 import tqdm
 from csv_insights import save_results_to_csv
 from losses import CombinedLoss, FocalFrequencyLoss
@@ -32,14 +30,16 @@ def argument_parser():
     ## Non DP training ##
 
     # Dataset options
-    parser.add_argument("--dataset", default="Duke", choices=["Duke", "UMN"])
+    parser.add_argument("--dataset", default="Duke", choices=["Duke"])
     parser.add_argument("--image_size", default="224", type=int)
     parser.add_argument(
         "--image_dir",
         default="data/DukeData/",
-        choices=["data/DukeData", "data/UMNData"],
+        choices=["data/DukeData"],
     )
-    parser.add_argument("--model_name", default="unet", choices=["unet", "NestedUNet"])
+    parser.add_argument(
+        "--model_name", default="NestedUNet", choices=["unet", "NestedUNet"]
+    )
 
     # Network options
     parser.add_argument("--g_ratio", default=0.5, type=float)

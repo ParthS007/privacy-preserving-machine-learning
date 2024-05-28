@@ -28,6 +28,10 @@ Determining optimal gradient clipping values to balance privacy and performance.
 | Automatic Clipping                               | WIP [ ]    |
 | Random Sparsification                            | WIP [ ]    |
 
+### Machine learning task
+
+I will evaluate the performance and Privacy of the segmentation of retinal images with the following networks.
+
 ### Models Used
 
 - U-Net
