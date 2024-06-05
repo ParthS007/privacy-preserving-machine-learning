@@ -303,9 +303,6 @@ def train(args):
             ) + args.ffc_lambda * criterion_ffc(pred_oh, label_oh)
 
             batch_grad = []
-            import pdb
-
-            pdb.set_trace()
             with backpack(BatchGrad()):
                 loss.backward()
             for p in model.parameters():
