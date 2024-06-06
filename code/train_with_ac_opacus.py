@@ -45,13 +45,13 @@ def argument_parser():
     )
     parser.add_argument(
         "--max_grad_norm",
-        default=[1.0] * 122,  # 1.0 for flat clipping mode
+        default=1.0,  # 1.0 for flat clipping mode
         type=float,
         help="Per-sample gradient clipping threshold",
     )
     parser.add_argument(
         "--clipping_mode",
-        default="per_layer",
+        default="flat",
         choices=["flat", "per_layer", "adaptive"],
         help="Gradient clipping mode",
     )
@@ -65,7 +65,7 @@ def argument_parser():
         choices=["data/DukeData", "data/UMNData"],
     )
     parser.add_argument(
-        "--model_name", default="NestedUNet", choices=["unet", "NestedUNet"]
+        "--model_name", default="ConvNet", choices=["unet", "NestedUNet", "ConvNet"]
     )
 
     # Network options
