@@ -25,7 +25,7 @@ Determining optimal gradient clipping values to balance privacy and performance.
 
 | Per-sample gradient clipping\Open Source Library | Opacus     |
 |--------------------------------------------------|----------- |
-| Automatic Clipping                               | WIP [ ]    |
+| Automatic Clipping                               | ✅         |
 | Random Sparsification                            | WIP [ ]    |
 
 ### Machine learning task
