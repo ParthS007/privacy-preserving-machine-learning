@@ -21,12 +21,12 @@ Determining optimal gradient clipping values to balance privacy and performance.
 ### Methods Analyzed
 
 - **Automatic Clipping**: Adjusts clipping threshold dynamically for optimal learning. [Implementation](https://github.com/ParthS007/opacus/tree/course-project)
-- **Random Sparsification**: Introduces randomness in gradient updates to enhance privacy.
+- **Random Sparsification**: Introduces randomness in gradient updates to enhance privacy. [Implementation](code/train_with_rs_opacus.py)
 
 | Per-sample gradient clipping\Open Source Library | Opacus     |
 |--------------------------------------------------|----------- |
 | Automatic Clipping                               | ✅         |
-| Random Sparsification                            | WIP [ ]    |
+| Random Sparsification                            | ✅         |
 
 ### Machine learning task
 

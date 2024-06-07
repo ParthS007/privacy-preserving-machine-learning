@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+
 def get_model(model_name, in_channels=1, num_classes=9, ratio=0.5):
     if model_name == "unet":
         model = UNet(in_channels, num_classes)
@@ -51,15 +52,18 @@ class ConvNet(nn.Module):
         self.conv4 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
-
         self.flatten_dim = 64 * (224 // 4) * (224 // 4)
 
         self.fc1 = nn.Linear(self.flatten_dim, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, out_channels * (224 // 4) * (224 // 4))
 
-        self.upsample = nn.ConvTranspose2d(out_channels, out_channels, kernel_size=2, stride=2)
-        self.upsample_final = nn.ConvTranspose2d(out_channels, out_channels, kernel_size=2, stride=2)
+        self.upsample = nn.ConvTranspose2d(
+            out_channels, out_channels, kernel_size=2, stride=2
+        )
+        self.upsample_final = nn.ConvTranspose2d(
+            out_channels, out_channels, kernel_size=2, stride=2
+        )
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -72,7 +76,6 @@ class ConvNet(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
 
-
         x = x.view(x.size(0), -1, 56, 56)
 
         x = self.upsample(x)  # Upsample to 112x112
@@ -80,16 +83,27 @@ class ConvNet(nn.Module):
 
         return x
 
+
 class ConvNetOld(nn.Module):
     def __init__(self, in_channels=1, out_channels=9, init_features=32):
         super(ConvNet, self).__init__()
 
         features = init_features
-        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=8, kernel_size=3, padding=1, bias=False)
-        self.conv2 = nn.Conv2d(in_channels=8, out_channels=32, kernel_size=3, padding=1, bias=False)
-        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=8,
+            kernel_size=3,
+            padding=1,
+            bias=False,
+        )
+        self.conv2 = nn.Conv2d(
+            in_channels=8, out_channels=32, kernel_size=3, padding=1, bias=False
+        )
+        self.conv3 = nn.Conv2d(
+            in_channels=32, out_channels=64, kernel_size=3, padding=1, bias=False
+        )
         self.max_pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.fc1 = nn.Linear(in_features=56*56*64, out_features=128)
+        self.fc1 = nn.Linear(in_features=56 * 56 * 64, out_features=128)
         self.fc2 = nn.Linear(in_features=128, out_features=out_channels * 56 * 56)
         self.dropout = nn.Dropout(p=0.5)
 
@@ -104,18 +118,14 @@ class ConvNetOld(nn.Module):
         x = F.relu(self.fc1(x))
         logits = self.fc2(x)
         # Reshape logits to match the expected output dimensions (N, C, H, W)
-        logits = logits.view(x.size(0), 9, 56, 56)  # 9 is the number of classes, 56 is the spatial dimension
+        logits = logits.view(
+            x.size(0), 9, 56, 56
+        )  # 9 is the number of classes, 56 is the spatial dimension
         loss = None
         if targets is not None:
             loss = F.cross_entropy(logits, targets)
         return logits, loss
 
-if __name__ == "__main__":
-    model = ConvNet()
-    sample_input = torch.randn(10, 1, 224, 224)  # Batch size of 10, 1 channel, 224x224 image
-    output = model(sample_input)
-    print(output)
-    print(output[0].shape)
 
 class UNet(nn.Module):
 
@@ -196,7 +206,7 @@ class UNet(nn.Module):
                     ),
                     # (name + "norm1", nn.BatchNorm2d(num_features=features)),  # non private
                     (name + "norm1", nn.GroupNorm(32, features)),
-                    (name + "relu1", nn.ReLU(inplace=True)),
+                    (name + "relu1", nn.ReLU(inplace=False)),
                     (
                         name + "conv2",
                         nn.Conv2d(
@@ -209,7 +219,7 @@ class UNet(nn.Module):
                     ),
                     # (name + "norm2", nn.BatchNorm2d(num_features=features)), # non private
                     (name + "norm2", nn.GroupNorm(32, features)),
-                    (name + "relu2", nn.ReLU(inplace=True)),
+                    (name + "relu2", nn.ReLU(inplace=False)),
                 ]
             )
         )

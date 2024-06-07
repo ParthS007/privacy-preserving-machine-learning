@@ -1,17 +1,10 @@
 import argparse
 import os
-import sys
 import time
-from collections import OrderedDict
 
-import backpack.context
-import backpack.core
 import numpy as np
-import pandas as pd
 import torch
 import tqdm
-from backpack import backpack, extend
-from backpack.extensions import BatchGrad
 from csv_insights import save_results_to_csv
 from losses import CombinedLoss, FocalFrequencyLoss
 from matplotlib import pyplot as plt
@@ -19,8 +12,6 @@ from networks import get_model
 from utils import per_class_dice
 
 from data import get_data
-
-sys.path.insert(0, "code/opacus")
 
 from opacus import PrivacyEngine
 
@@ -88,7 +79,9 @@ def argument_parser():
         default="data/DukeData/",
         choices=["data/DukeData"],
     )
-    parser.add_argument("--model_name", default="ConvNet", choices=["unet", "NestedUNet", "ConvNet"])
+    parser.add_argument(
+        "--model_name", default="unet", choices=["unet", "NestedUNet", "ConvNet"]
+    )
 
     # Network options
     parser.add_argument("--g_ratio", default=0.5, type=float)
@@ -111,6 +104,23 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
+
+
+def calculate_exit_rate(
+    current_iteration, total_iterations, refresh_rate, final_rate, train_loader_length
+):
+    if total_iterations <= 1:
+        return 0
+    return np.clip(
+        final_rate
+        * (
+            current_iteration * refresh_rate
+            + total_iterations // (train_loader_length // refresh_rate)
+        )
+        / (refresh_rate * total_iterations - 1),
+        0,
+        final_rate,
+    )
 
 
 def eval(
@@ -215,7 +225,6 @@ def train(args):
     validation_losses = []
     validation_dice_scores = []
     criterion_seg = CombinedLoss()
-    criterion_seg = extend(criterion_seg, debug=True)
     criterion_ffc = FocalFrequencyLoss()
     save_name = f"results/{algorithm}/{model_name}_{noise_multiplier}.pt"
     file_name = f"results/{algorithm}/{model_name}_{dataset}.csv"
@@ -226,7 +235,6 @@ def train(args):
     best_iter = 0
 
     model = get_model(model_name, ratio=ratio, num_classes=n_classes).to(device)
-    model = extend(model, debug=True)
     model.train()
     train_loader, val_loader, test_loader, train_dataset, val_dataset, test_dataset = (
         get_data(data_path, img_size, batch_size)
@@ -263,25 +271,21 @@ def train(args):
         gradient = torch.zeros(size=[num_params]).to(device)
 
         for img, label in tqdm.tqdm(train_loader):
-            # Compute current gradual exit rate
-            if iterations % (len(train_loader) // args.refresh) == 0:
-                rate = (
-                    np.clip(
-                        args.final_rate
-                        * (
-                            t * args.refresh
-                            + iterations // (len(train_loader) // args.refresh)
-                        )
-                        / (args.refresh * args.epochs - 1),
-                        0,
-                        args.final_rate,
-                    )
-                    if args.epochs >= 0
-                    else 0
+            current_iteration = t * len(train_loader) + mini_batch
+            refresh_interval = len(train_loader) // args.refresh
+
+            # Compute current gradual exit rate and initialize mask
+            if current_iteration % refresh_interval == 0:
+                rate = calculate_exit_rate(
+                    t, iterations, args.refresh, args.final_rate, len(train_loader)
                 )
-                mask = torch.randperm(num_params, device=device, dtype=torch.long)[
-                    : int(rate * num_params)
-                ]
+            else:
+                if "rate" not in locals():
+                    rate = 0  # Ensure rate is defined if not updated in this iteration
+
+            mask = torch.randperm(num_params, device=device, dtype=torch.long)[
+                : int(rate * num_params)
+            ]
 
             img = img.to(device)
             label = label.to(device)
@@ -302,18 +306,23 @@ def train(args):
                 pred, label.squeeze(1), device=device
             ) + args.ffc_lambda * criterion_ffc(pred_oh, label_oh)
 
-            batch_grad = []
-            with backpack(BatchGrad()):
-                loss.backward()
-            for p in model.parameters():
-                batch_grad.append(p.grad_batch.reshape(p.grad_batch.shape[0], -1))
-                del p.grad_batch
+            grads = torch.autograd.grad(loss, model.parameters(), create_graph=True)
+            # Preallocate memory for batch_grad
+            batch_grad = torch.zeros(
+                sum(p.numel() for p in model.parameters()), device=device
+            )
+            # Use torch.no_grad() to prevent tracking operations
+            with torch.no_grad():
+                offset = 0
+                for grad in grads:
+                    if grad is not None:
+                        numel = grad.numel()
+                        batch_grad[offset : offset + numel] = grad.reshape(-1)
+                        offset += numel
 
             # Clipping gradients
-            batch_grad = torch.cat(batch_grad, dim=1)
-            for grad in batch_grad:
-                grad[mask] = 0
-            norm = torch.norm(batch_grad, dim=1)
+            batch_grad[mask] = 0
+            norm = torch.norm(batch_grad, dim=0)
             scale = torch.clamp(max_grad_norm / norm, max=1)
             gradient += (batch_grad * scale.view(-1, 1)).sum(dim=0)
 
@@ -335,12 +344,15 @@ def train(args):
                 # Replace the gradients with the perturbed gradients
                 offset = 0
                 for p in model.parameters():
-                    shape = p.grad.shape
-                    numel = p.grad.numel()
-                    p.grad.data = gradient[offset : offset + numel].view(shape)
-                    offset += numel
+                    if p.grad is not None:
+                        shape = p.grad.shape
+                        numel = p.grad.numel()
+                        p.grad.data = gradient[offset : offset + numel].view(shape)
+                        offset += numel
 
                 optimizer.step()
+                for p in model.parameters():
+                    p.grad = None  # Zero out the gradients after step
                 gradient = torch.zeros(size=[num_params]).to(device)
 
             total_loss = loss.item() + img.size(0)

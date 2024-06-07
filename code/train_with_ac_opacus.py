@@ -65,7 +65,7 @@ def argument_parser():
         choices=["data/DukeData", "data/UMNData"],
     )
     parser.add_argument(
-        "--model_name", default="ConvNet", choices=["unet", "NestedUNet", "ConvNet"]
+        "--model_name", default="unet", choices=["unet", "NestedUNet", "ConvNet"]
     )
 
     # Network options
