@@ -1,0 +1,2 @@
+# Automatic Clipping Implementation
+-e git+https://github.com/parths007/opacus.git@6285a3beca36408e80cfb853d052d3a26247518e#egg=opacus

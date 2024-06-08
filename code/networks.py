@@ -2,8 +2,6 @@ from collections import OrderedDict
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 
 
 def get_model(model_name, in_channels=1, num_classes=9, ratio=0.5):
@@ -11,8 +9,6 @@ def get_model(model_name, in_channels=1, num_classes=9, ratio=0.5):
         model = UNet(in_channels, num_classes)
     elif model_name == "NestedUNet":
         model = NestedUNet(in_channels, num_classes)
-    elif model_name == "ConvNet":
-        model = ConvNet(in_channels, num_classes)
     else:
         print("Model name not found")
         assert False
@@ -40,91 +36,6 @@ class VGGBlock(nn.Module):
         out = self.relu(out)
 
         return out
-
-
-class ConvNet(nn.Module):
-    def __init__(self, in_channels=1, out_channels=9, init_features=32):
-        super(ConvNet, self).__init__()
-
-        self.conv1 = nn.Conv2d(in_channels, 8, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-        self.conv4 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        self.flatten_dim = 64 * (224 // 4) * (224 // 4)
-
-        self.fc1 = nn.Linear(self.flatten_dim, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, out_channels * (224 // 4) * (224 // 4))
-
-        self.upsample = nn.ConvTranspose2d(
-            out_channels, out_channels, kernel_size=2, stride=2
-        )
-        self.upsample_final = nn.ConvTranspose2d(
-            out_channels, out_channels, kernel_size=2, stride=2
-        )
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = F.relu(self.conv3(x))
-        x = self.pool(F.relu(self.conv4(x)))
-
-        x = x.view(x.size(0), -1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-
-        x = x.view(x.size(0), -1, 56, 56)
-
-        x = self.upsample(x)  # Upsample to 112x112
-        x = self.upsample_final(x)  # Upsample to 224x224
-
-        return x
-
-
-class ConvNetOld(nn.Module):
-    def __init__(self, in_channels=1, out_channels=9, init_features=32):
-        super(ConvNet, self).__init__()
-
-        features = init_features
-        self.conv1 = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=8,
-            kernel_size=3,
-            padding=1,
-            bias=False,
-        )
-        self.conv2 = nn.Conv2d(
-            in_channels=8, out_channels=32, kernel_size=3, padding=1, bias=False
-        )
-        self.conv3 = nn.Conv2d(
-            in_channels=32, out_channels=64, kernel_size=3, padding=1, bias=False
-        )
-        self.max_pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.fc1 = nn.Linear(in_features=56 * 56 * 64, out_features=128)
-        self.fc2 = nn.Linear(in_features=128, out_features=out_channels * 56 * 56)
-        self.dropout = nn.Dropout(p=0.5)
-
-    def forward(self, x, targets=None):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = self.max_pool(x)
-        x = F.relu(self.conv3(x))
-        x = self.max_pool(x)
-        x = x.view(x.size(0), -1)
-        x = self.dropout(x)
-        x = F.relu(self.fc1(x))
-        logits = self.fc2(x)
-        # Reshape logits to match the expected output dimensions (N, C, H, W)
-        logits = logits.view(
-            x.size(0), 9, 56, 56
-        )  # 9 is the number of classes, 56 is the spatial dimension
-        loss = None
-        if targets is not None:
-            loss = F.cross_entropy(logits, targets)
-        return logits, loss
 
 
 class UNet(nn.Module):

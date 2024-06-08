@@ -9,11 +9,10 @@ from csv_insights import save_results_to_csv
 from losses import CombinedLoss, FocalFrequencyLoss
 from matplotlib import pyplot as plt
 from networks import get_model
+from opacus import PrivacyEngine
 from utils import per_class_dice
 
 from data import get_data
-
-from opacus import PrivacyEngine
 
 
 def argument_parser():
@@ -47,26 +46,26 @@ def argument_parser():
     )
     parser.add_argument(
         "--max_grad_norm",
-        default=1.0,  # 1.0 for flat clipping mode
+        default=[1.0] * 64,  # 1.0 for flat clipping mode
         type=float,
         help="Per-sample gradient clipping threshold",
     )
     parser.add_argument(
         "--clipping_mode",
-        default="flat",
+        default="per_layer",
         choices=["flat", "per_layer", "adaptive"],
         help="Gradient clipping mode",
     )
     # Random Sparsification
     parser.add_argument(
         "--final_rate",
-        default=0,
+        default=0.9,
         type=float,
         help="Sparsification rate at the end of gradual cooling.",
     )
     parser.add_argument(
         "--refresh",
-        default=1,
+        default=2,
         type=int,
         help="Randomization times of sparsification mask per epoch.",
     )
@@ -79,9 +78,7 @@ def argument_parser():
         default="data/DukeData/",
         choices=["data/DukeData"],
     )
-    parser.add_argument(
-        "--model_name", default="unet", choices=["unet", "NestedUNet", "ConvNet"]
-    )
+    parser.add_argument("--model_name", default="unet", choices=["unet", "NestedUNet"])
 
     # Network options
     parser.add_argument("--g_ratio", default=0.5, type=float)
@@ -145,6 +142,8 @@ def eval(
     loss = 0
     counter = 0
     dice = 0
+    correct_pixels = 0
+    total_pixels = 0
 
     dice_all = np.zeros(n_classes)
 
@@ -164,9 +163,13 @@ def eval(
 
         loss += criterion(pred, label.squeeze(1), device=device).item()
 
+        # Calculate accuracy
+        correct_pixels += (idx == label.squeeze(1)).sum().item()
+        total_pixels += torch.numel(label.squeeze(1))
+
         if im_save:
             # Save the predicted segmentation and the ground truth segmentation
-            name = f"predicted_segment_{counter}_for_{dataset}_with_{algorithm}.png"
+            name = f"{algorithm}: Predicted {dataset} Segment: {counter}"
             fig, ax = plt.subplots(1, 2)
             fig.suptitle(name, fontsize=10)
 
@@ -179,7 +182,7 @@ def eval(
             dir_path = f"results/{algorithm}/{location}"
             if not os.path.exists(dir_path):
                 os.makedirs(dir_path)
-            plt.savefig(f"results/{algorithm}/{location}/{name}.png")
+            plt.savefig(f"results/{algorithm}/{location}/{name}")
             plt.close(fig)
 
         counter += 1
@@ -187,8 +190,18 @@ def eval(
     loss = loss / counter
     dice = dice / counter
     dice_all = dice_all / counter
-    print("Validation loss: ", loss, " Mean Dice: ", dice.item(), "Dice All:", dice_all)
-    return dice, loss
+    accuracy = correct_pixels / total_pixels
+    print(
+        "Validation loss: ",
+        loss,
+        " Mean Dice: ",
+        dice.item(),
+        "Dice All:",
+        dice_all,
+        "Accuracy: ",
+        accuracy,
+    )
+    return dice, loss, accuracy
 
 
 def train(args):
@@ -203,7 +216,7 @@ def train(args):
     target_delta = args.target_delta
     max_grad_norm = args.max_grad_norm
     clipping_mode = args.clipping_mode
-    algorithm = "opacus-rs-ac"
+    algorithm = "Opacus-RS"
 
     # Random Sparsification specific hyperparameters
     final_rate = args.final_rate
@@ -224,6 +237,7 @@ def train(args):
     training_losses = []
     validation_losses = []
     validation_dice_scores = []
+    validation_accuracies = []
     criterion_seg = CombinedLoss()
     criterion_ffc = FocalFrequencyLoss()
     save_name = f"results/{algorithm}/{model_name}_{noise_multiplier}.pt"
@@ -231,7 +245,7 @@ def train(args):
     location = f"{noise_multiplier}"
 
     max_dice = 0
-    best_test_dice = 0
+    # best_test_dice = 0
     best_iter = 0
 
     model = get_model(model_name, ratio=ratio, num_classes=n_classes).to(device)
@@ -323,7 +337,10 @@ def train(args):
             # Clipping gradients
             batch_grad[mask] = 0
             norm = torch.norm(batch_grad, dim=0)
-            scale = torch.clamp(max_grad_norm / norm, max=1)
+            max_grad_norm_value = (
+                max_grad_norm[0] if isinstance(max_grad_norm, list) else max_grad_norm
+            )
+            scale = torch.clamp(max_grad_norm_value / norm, max=1)
             gradient += (batch_grad * scale.view(-1, 1)).sum(dim=0)
 
             # Optimization
@@ -335,7 +352,7 @@ def train(args):
                 # Perturbation
                 noise = torch.normal(
                     0,
-                    noise_multiplier * max_grad_norm / args.batch_size,
+                    noise_multiplier * max_grad_norm_value / args.batch_size,
                     size=gradient.shape,
                 ).to(device)
                 noise[mask] = 0
@@ -381,7 +398,7 @@ def train(args):
         if t % 10 == 0 or t > 4:
             print("Epoch", t, "/", iterations)
             print("Validation in progress...")
-            dice, validation_loss = eval(
+            dice, validation_loss, accuracy = eval(
                 val_loader,
                 criterion_seg,
                 model,
@@ -394,6 +411,7 @@ def train(args):
             )
             validation_losses.append(validation_loss)
             validation_dice_scores.append(dice)
+            validation_accuracies.append(accuracy)
 
             if dice > max_dice:
                 max_dice = dice
@@ -411,69 +429,70 @@ def train(args):
     training_losses_str = str(training_losses)
     validation_losses_str = str(validation_losses)
     validation_dice_scores_str = str(validation_dice_scores)
+    validation_accuracies_str = str(validation_accuracies)
     print("Training Losses: ", training_losses_str)
     print("Validation Losses: ", validation_losses_str)
     print("Validation Dice Scores: ", validation_dice_scores_str)
+    print("Validation Accuracies: ", validation_accuracies_str)
     print("Overall Privacy Spent: ", overall_privacy_spent)
 
     # Plotting Privacy Epsilon Over Time
     epochs = list(range(1, iterations + 1))
-    name = f"Privacy Epsilon Over Time for '{dataset}' dataset with {algorithm} ."
+    name = f"{algorithm}: Privacy Epsilon Over Time for {dataset}"
+    plot_location = f"results/{algorithm}/{location}"
+    if not os.path.exists(f"{plot_location}"):
+        os.makedirs(plot_location)
     plt.plot(epochs, overall_privacy_spent)
     plt.xlabel("Epoch")
     plt.ylabel("Epsilon")
     plt.title(name)
-    plt.savefig(f"results/{algorithm}/{location}/{name}.png")
-    plt.show()
+    plt.savefig(f"{plot_location}/{name}")
+    plt.show(block=False)
 
     # Privacy Epsilon vs Training Loss
-    name = (
-        f"Privacy Epsilon vs. Training Loss for '{dataset}' dataset with {algorithm} ."
-    )
+    name = f"{algorithm}: Privacy Epsilon vs Training Loss for {dataset}"
     plt.plot(overall_privacy_spent, training_losses)
     plt.xlabel("Epsilon")
     plt.ylabel("Training Loss")
     plt.title(name)
-    plt.savefig(f"results/{algorithm}/{location}/{name}.png")
-    plt.show()
+    plt.savefig(f"{plot_location}/{name}")
+    plt.show(block=False)
 
     # Training Average Loss Over Time
-    name = f"Training Average Loss Over Time for '{dataset}' dataset with {algorithm} ."
+    name = f"{algorithm}: Training Average Loss Over Time for {dataset}"
     plt.figure()
     plt.plot(epochs, training_losses, label="Train Average Loss")
     plt.xlabel("Epoch")
-    plt.ylabel("Value")
+    plt.ylabel("Training Average Loss")
     plt.title(name)
     plt.legend()
-    plt.savefig(f"results/{algorithm}/{location}/{name}.png")
-    plt.show()
+    plt.savefig(f"{plot_location}/{name}")
+    plt.show(block=False)
 
     # Training Epoch Time Over Time
-    name = f"Training Epoch Time Over Time for '{dataset}' dataset with {algorithm} ."
+    name = f"{algorithm}: Training Time per Epoch Over Time for {dataset}"
     plt.figure()
     plt.plot(epochs, iteration_train_times, label="Train Epoch Time")
     plt.xlabel("Epoch")
-    plt.ylabel("Value")
+    plt.ylabel("Training Time")
     plt.title(name)
     plt.legend()
-    plt.savefig(f"results/{algorithm}/{location}/{name}.png")
-    plt.show()
+    plt.savefig(f"{plot_location}/{name}")
+    plt.show(block=False)
 
     # Training Epoch Loss Over Time
-    name = f"Training Epoch Loss Over Time for '{dataset}' dataset with {algorithm} ."
+    name = f"{algorithm}: Training Epoch Loss Over Time for {dataset}"
     plt.figure()
     plt.plot(epochs, train_epoch_losses, label="Train Epoch Loss")
     plt.xlabel("Epoch")
-    plt.ylabel("Value")
+    plt.ylabel("Train Epoch Loss")
     plt.title(name)
     plt.legend()
-    plt.savefig(f"results/{algorithm}/{location}/{name}.png")
-    plt.show()
+    plt.savefig(f"{plot_location}/{name}")
+    plt.show(block=False)
 
     # Iteration Time Per Epoch Over Time
-    name = (
-        f"Iteration Time Per Epoch Over Time for '{dataset}' dataset with {algorithm} ."
-    )
+    name = f"{algorithm}: Iteration Train Time Over Time for {dataset}"
     plt.figure()
     plt.plot(
         range(1, len(iteration_train_times) + 1),
@@ -484,8 +503,8 @@ def train(args):
     plt.ylabel("Time (s)")
     plt.title(name)
     plt.legend()
-    plt.savefig(f"results/{algorithm}/{location}/{name}.png")
-    plt.show()
+    plt.savefig(f"{plot_location}/{name}")
+    plt.show(block=False)
 
     save_results_to_csv(
         # Location
@@ -511,6 +530,7 @@ def train(args):
         training_losses=training_losses,
         validation_losses=validation_losses,
         validation_dice_scores=validation_dice_scores,
+        validation_accuracies=validation_accuracies,
         total_training_time=training_time,
     )
     return model

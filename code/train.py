@@ -38,7 +38,7 @@ def argument_parser():
         choices=["data/DukeData"],
     )
     parser.add_argument(
-        "--model_name", default="ConvNet", choices=["unet", "NestedUNet", "ConvNet"]
+        "--model_name", default="unet", choices=["unet", "NestedUNet", "ConvNet"]
     )
 
     # Network options
@@ -80,6 +80,8 @@ def eval(
     loss = 0
     counter = 0
     dice = 0
+    correct_pixels = 0
+    total_pixels = 0
 
     dice_all = np.zeros(n_classes)
 
@@ -99,9 +101,13 @@ def eval(
 
         loss += criterion(pred, label.squeeze(1), device=device).item()
 
+        # Calculate accuracy
+        correct_pixels += (idx == label.squeeze(1)).sum().item()
+        total_pixels += torch.numel(label.squeeze(1))
+
         if im_save:
             # Save the predicted segmentation and the ground truth segmentation
-            name = f"predicted_segment_{counter}_for_{dataset}_with_{algorithm}.png"
+            name = f"{algorithm}: Predicted {dataset} Segment: {counter}"
             fig, ax = plt.subplots(1, 2)
             fig.suptitle(name, fontsize=10)
 
@@ -114,7 +120,7 @@ def eval(
             dir_path = f"results/{algorithm}/{location}"
             if not os.path.exists(dir_path):
                 os.makedirs(dir_path)
-            plt.savefig(f"results/{algorithm}/{location}/{name}.png")
+            plt.savefig(f"results/{algorithm}/{location}/{name}")
             plt.close(fig)
 
         counter += 1
@@ -122,8 +128,18 @@ def eval(
     loss = loss / counter
     dice = dice / counter
     dice_all = dice_all / counter
-    print("Validation loss: ", loss, " Mean Dice: ", dice.item(), "Dice All:", dice_all)
-    return dice, loss
+    accuracy = correct_pixels / total_pixels
+    print(
+        "Validation loss: ",
+        loss,
+        " Mean Dice: ",
+        dice.item(),
+        "Dice All:",
+        dice_all,
+        "Accuracy: ",
+        accuracy,
+    )
+    return dice, loss, accuracy
 
 
 def train(args):
@@ -147,21 +163,22 @@ def train(args):
     training_losses = []
     validation_losses = []
     validation_dice_scores = []
+    validation_accuracies = []
     criterion_seg = CombinedLoss()
     criterion_ffc = FocalFrequencyLoss()
 
-    algorithm = "Non_DP"
+    algorithm = "Non-DP"
     save_name = f"results/{algorithm}/{model_name}_{dataset}.pt"
     file_name = f"results/{algorithm}/{model_name}_{dataset}.csv"
 
     max_dice = 0
-    best_test_dice = 0
+    # best_test_dice = 0
     best_iter = 0
 
     model = get_model(model_name, ratio=ratio, num_classes=n_classes).to(device)
     model.train()
 
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.SGD(
         list(model.parameters()), lr=learning_rate, weight_decay=args.weight_decay
     )
 
@@ -220,7 +237,7 @@ def train(args):
         if t % 10 == 0 or t > 45:
             print("Epoch", t, "/", iterations)
             print("Validation")
-            dice, validation_loss = eval(
+            dice, validation_loss, accuracy = eval(
                 val_loader,
                 criterion_seg,
                 model,
@@ -232,6 +249,7 @@ def train(args):
             )
             validation_losses.append(validation_loss)
             validation_dice_scores.append(dice)
+            validation_accuracies.append(accuracy)
 
             # print("Expert 1 - Test")
             # dice_test = eval(test_loader, criterion_seg, model, n_classes=n_classes)
@@ -254,43 +272,37 @@ def train(args):
     training_losses_str = str(training_losses)
     validation_losses_str = str(validation_losses)
     validation_dice_scores_str = str(validation_dice_scores)
+    validation_accuracies_str = str(validation_accuracies)
     print("Training Losses: ", training_losses_str)
     print("Validation Losses: ", validation_losses_str)
     print("Validation Dice Scores: ", validation_dice_scores_str)
+    print("Validation Accuracies: ", validation_accuracies_str)
 
     # Training Average Loss Over Time
     epochs = list(range(1, iterations + 1))
-    name = f"Training Average Loss Over Time for '{dataset}' dataset with {algorithm} ."
+    name = f"{algorithm}: Training Average Loss Over Time for {dataset}"
+    plot_location = f"results/{algorithm}/{model_name}/{dataset}"
+    if not os.path.exists(f"{plot_location}/{name}"):
+        os.makedirs(plot_location)
     plt.figure()
     plt.plot(epochs, training_losses, label="Train Average Loss")
     plt.xlabel("Epoch")
-    plt.ylabel("Value")
+    plt.ylabel("Training Average Loss")
     plt.title(name)
     plt.legend()
-    plt.savefig(f"results/{algorithm}/{dataset}/{name}.png")
-    plt.show()
-
-    # Validation Loss Over Time
-    # name = f"Validation Loss Over Time for '{dataset}' dataset with {algorithm} ."
-    # plt.figure()
-    # plt.plot(epochs, validation_losses, label="Validation Loss")
-    # plt.xlabel("Epoch")
-    # plt.ylabel("Value")
-    # plt.title(name)
-    # plt.legend()
-    # plt.savefig(f"results/{algorithm}/{dataset}/{name}.png")
-    # plt.show()
+    plt.savefig(f"{plot_location}/{name}")
+    plt.show(block=False)
 
     # Training Epoch Time Over Time
-    name = f"Training Epoch Time Over Time for '{dataset}' dataset with {algorithm} ."
+    name = f"{algorithm}: Training Time per Epoch Over Time for {dataset}"
     plt.figure()
     plt.plot(epochs, iteration_train_times, label="Train Epoch Time")
     plt.xlabel("Epoch")
-    plt.ylabel("Value")
+    plt.ylabel("Training Time")
     plt.title(name)
     plt.legend()
-    plt.savefig(f"results/{algorithm}/{dataset}/{name}.png")
-    plt.show()
+    plt.savefig(f"{plot_location}/{name}")
+    plt.show(block=False)
 
     # Save the model results
     save_results_to_csv(
@@ -316,6 +328,7 @@ def train(args):
         training_losses=training_losses,
         validation_losses=validation_losses,
         validation_dice_scores=validation_dice_scores,
+        validation_accuracies=validation_accuracies,
         total_training_time=training_time,
     )
     print("Best iteration: ", best_iter, "Best val dice: ", max_dice)
