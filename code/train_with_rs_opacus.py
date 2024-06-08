@@ -406,7 +406,7 @@ def train(args):
                 n_classes=n_classes,
                 dataset=dataset,
                 algorithm=algorithm,
-                location=f"{noise_multiplier}",
+                location=f"{model_name}/{location}",
                 im_save=True,
             )
             validation_losses.append(validation_loss)
@@ -439,7 +439,7 @@ def train(args):
     # Plotting Privacy Epsilon Over Time
     epochs = list(range(1, iterations + 1))
     name = f"{algorithm}: Privacy Epsilon Over Time for {dataset}"
-    plot_location = f"results/{algorithm}/{location}"
+    plot_location = f"results/{algorithm}/{model_name}/{dataset}/{location}"
     if not os.path.exists(f"{plot_location}"):
         os.makedirs(plot_location)
     plt.plot(epochs, overall_privacy_spent)
