@@ -46,7 +46,7 @@ def argument_parser():
     )
     parser.add_argument(
         "--max_grad_norm",
-        default=[1.0] * 64,  # 1.0 for flat clipping mode
+        default=[1.0] * 64,  # 1.0 for flat clipping mode and [1.0] * 122 for NestedUNet
         type=float,
         help="Per-sample gradient clipping threshold",
     )
