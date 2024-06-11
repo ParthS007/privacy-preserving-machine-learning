@@ -449,15 +449,6 @@ def train(args):
     plt.savefig(f"{plot_location}/{name}")
     plt.show(block=False)
 
-    # Privacy Epsilon vs Training Loss
-    name = f"{algorithm}: Privacy Epsilon vs Training Loss for {dataset}"
-    plt.plot(overall_privacy_spent, training_losses)
-    plt.xlabel("Epsilon")
-    plt.ylabel("Training Loss")
-    plt.title(name)
-    plt.savefig(f"{plot_location}/{name}")
-    plt.show(block=False)
-
     # Training Average Loss Over Time
     name = f"{algorithm}: Training Average Loss Over Time for {dataset}"
     plt.figure()
